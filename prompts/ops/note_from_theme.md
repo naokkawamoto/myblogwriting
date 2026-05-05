@@ -5,7 +5,7 @@ tags: [note, theme, ops]
 
 # 運用：テーマから note 下書き
 
-**ゴール**: テーマを伝えると、One Technology Japan 社長の note として **本文の下書き** が得られる。
+**ゴール**: テーマを伝えると、One Technology Japan の **note 用本文の下書き** が得られる（特定役職への固定はしない運用）。
 
 ## 手順（どちらか一方でよい）
 

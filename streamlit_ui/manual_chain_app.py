@@ -39,11 +39,11 @@ def _note_input_specs() -> list[str]:
         f" **{PASS_THRESHOLD} 点以上**で次へ。再評価ボタン最大 {EVAL_MAX_ROUNDS} 回。"
     )
     tail = [
-        "合格判定・戻り先メモ。",
+        "公開前ゲート（**3軸**チェック＋1〜5評価／必須軸の見落とし防止）。",
         "手修正後の確定稿。",
         "画像ツールの結果メモ（なくても可）。",
-        "公開した note の URL・日付メモ。",
-        "シェア文案（Claude の返答）。",
+        "公開直後メモなど（任意・URL メイン運用ならステップ10で記録でも可）。",
+        "最終記事・公開 URL・Claude のシェア文案（返答貼り付け）。",
     ]
     return [s0, s1, s2, s3, s4, *tail]
 
@@ -57,8 +57,8 @@ NOTE_NAV_LABELS = [
     "6 合格メモ",
     "7 確定稿",
     "8 画像",
-    "9 note公開メモ",
-    "10 シェア文案",
+    "9 公開メモ（任意・短い記録）",
+    "10 シェア（稿＋URL→Claude）",
 ]
 
 NOTE_HEADINGS = [
@@ -70,21 +70,21 @@ NOTE_HEADINGS = [
     "ステップ6　合格判定メモ",
     "ステップ7　確定稿",
     "ステップ8　画像プロンプト → 画像ツール",
-    "ステップ9　note URL・公開メモ",
-    "ステップ10　シェア文案",
+    "ステップ9　公開メモ（任意・URL は主にステップ10でも可）",
+    "ステップ10　シェア文案（最終稿・URL → Claude）",
 ]
 
 STEP_OUTPUT_SPEC = [
     "標準プロンプト＋カスタム結合。**Claude** にコピー（ステップ1）。",
     "ChatGPT に貼る「一次評価」依頼の全文（一次記事が埋まります）。",
-    "まず ChatGPT 用の評価依頼全文。返答を貼ったあと、条件が揃えば続けて Claude 向けの改稿依頼全文も出ます。",
-    "（主に折りたたみ内）Claude 向けの改稿依頼プロンプト（評価・元稿が埋まった状態）。",
-    "ChatGPT に貼る「二次評価」依頼の全文。",
-    "メモ用テンプレ（コピーは任意）。",
-    "画像生成用プロンプト（確定稿が参照されます）。",
+    "一次評価の依頼文は **ステップ2 の右**でコピー。ここでは左に返答を貼ると **Claude 改稿依頼**だけが右に出ます。",
+    "左に改稿全文を貼ると、右列に **ChatGPT 二次評価**用のコピー文が出ます。下の折りたたみは Claude 改稿依頼の再掲。",
+    "左に ChatGPT の返答を貼り、点数を入れると分岐：**合格**→ステップ6へ。**不合格**→右に Claude 再改稿用。**未採点（0）**→二次評価のコピー文のみ。",
+    "人の **合格判定**：左で **3軸**ごとにチェック＋5段階評価（保存時に表形式で合成）。",
+    "画像生成AIに貼る**英語プロンプト**（確定稿参照・生成実行前提の指示）。",
     "（テンプレに応じて出る場合のみ）コピー用テキスト。",
     "（テンプレに応じて出る場合のみ）コピー用テキスト。",
-    "Claude に貼るシェア文案用プロンプト全文。",
+    "左に最終記事＋note URL。右に **Claude 用シェア生成プロンプト（Markdown）**。下に Claude の返答を貼って業務完了。",
 ]
 
 DEFAULT_PROMPTS: list[str] = [
@@ -103,18 +103,144 @@ DEFAULT_PROMPTS: list[str] = [
     "ステップ3・5 の点数を見て、90 未満ならどこまで戻るかメモ。\n",
     "手修正後の最終稿を貼る。\n",
     (
-        "あなたはビジュアルディレクターです。次の確定稿を読み、**note 向けの画像生成用プロンプト**を英語で出力してください。\n\n"
-        "## 画像サイズ・比率（note 記事での表示を想定・必ず明記）\n"
-        "- **アイキャッチ（タイトル直下）**: **横 1280 × 縦 720 px（16:9）** を既定。横長で、極端な縦長（9:16 等）は使わない。\n"
-        "- **本文中の挿絵**が必要な場合は用途ごとに **横 1280 × 縦 853（3:2）** または **1280 × 1280（1:1）** を指定し、どれがアイキャッチか分かるように書く。\n"
-        "- 実際の生成ツールの指定に合わせ、末尾に **aspect ratio / --ar 16:9** 等を追記してよい。\n"
-        "- 文字・ロゴを載せる場合は四辺に余白（セーフゾーン）。細線・極小文字は避ける。\n\n"
-        "### 確定稿（参照）\n{{STEP7}}\n\n"
-        "---\n（このプロンプトを画像ツールに貼ったあと、結果メモを下の貼り欄に残す運用でもよい）\n"
+        "あなたはビジュアルディレクター兼、画像生成AIへのプロンプト設計者です。\n"
+        "次の **確定稿**を読み、**note 記事用のアイキャッチ1枚＋必要な本文挿絵**について、"
+        "**画像生成ツール（例: Midjourney / DALL·E / Firefly / SDXL / Imagen 等）にそのまま貼って画像を生成する**ための"
+        "**英語の画像生成プロンプト**だけを出力してください。\n\n"
+        "## 必須ルール\n"
+        "- 出力はすべて **画像を生成するための実行指示**であること。記事の要約や感想だけで終わらせない。\n"
+        "- 各ブロックの先頭に **日本語で用途**（例: アイキャッチ／本文挿絵の説明箇所）と、**画像生成AIに貼って生成する**旨を一行で書く。\n"
+        "- 続けて **ピクセルサイズとアスペクト比**を英語で一行（例: `Size: 1280 × 720 px, aspect ratio 16:9`）。\n"
+        "- その直後に **英語の本編プロンプト**（構図・光・色・禁止事項: 読めない小文字・ロゴ・ブランド名・日本語テキスト禁止など）。\n"
+        "- 英語ブロックの末尾に **ツール用比率フラグ**（例: `--ar 16:9` / `--ar 3:2` / `--ar 1:1`）を必ず付ける。\n"
+        "- セーフゾーン（四辺の余白）・極小UI禁止を英語で指示する。\n\n"
+        "## 出力の見出し構成（このままの見出し名で出力）\n"
+        "### アイキャッチ画像用プロンプト（画像生成AIへ貼る）\n"
+        "Size 行 → 英語プロンプト → `--ar 16:9`\n\n"
+        "### 本文中の挿絵案 1（画像生成AIへ貼る）\n"
+        "用途: （日本語1行） / Size 行 → 英語 → `--ar 3:2`\n\n"
+        "### 本文中の挿絵案 2（画像生成AIへ貼る）\n"
+        "不要なら見出しだけ残し **「挿絵不要」** と一行。必要なら用途・Size・英語・`--ar 1:1` など。\n\n"
+        "## サイズの既定（これに合わせる）\n"
+        "- アイキャッチ: **1280×720・16:9**\n"
+        "- 横長挿絵: **1280×853・3:2**\n"
+        "- 正方形挿絵: **1280×1280・1:1**\n\n"
+        "### 確定稿（参照。本文は繰り返し出力しない）\n{{STEP7}}\n\n"
+        "---\n"
+        "上記の構成のみを出力し、**このテキストがそのまま画像生成AIの入力欄に入ること**で画像ができるよう、"
+        "英語部分を具体的に（被写体・光・構図・禁止事項）書く。**ここでの出力はチャットのみであり、PNG/JPEG は自動では付かない**。"
+        "**利用者が Midjourney 等へ英語プロンプトを貼って「生成」を押す運用である**。\n"
     ),
     "記事 URL・公開日メモを貼る。\n",
-    "URL: {{STEP9}}\n要約:\n{{STEP7}}\n",
+    "",
 ]
+
+# ステップ6：人による公開前ゲート（LLM の採点とは別レイヤ）
+# (key, 表示ラベル, ログ保存時「必須」欄／未チェック時の警告対象)
+# 運用しやすいよう **3 軸**（④運用・承認はワークフロー外のため省略）
+STEP6_GATE_ITEMS = [
+    (
+        "axis_accuracy",
+        "① **正確性・表記** — 事実・数値・固有名詞とソースの整合／誇大・未検証の有無／推測の明示／免責・広告・アフィ等の掲載要件",
+        True,
+    ),
+    (
+        "axis_brand_rights",
+        "② **ブランド・権利** — トーン・禁則（特定モデル名の露骨指名、不適切な他社言及等）／引用・画像・その他の権利・出典",
+        True,
+    ),
+    (
+        "axis_reader",
+        "③ **読者・構成** — 読者の誤解がないか／リード・見出し・結論・CTA が本文と整合しているか",
+        True,
+    ),
+]
+
+STEP6_LV_LABELS = {1: "要対応", 2: "不安あり", 3: "継続注意", 4: "概ねOK", 5: "問題なし"}
+
+# ステップ10：シェア用のリポジトリ標準（`read_prompt_body_for_copy` で front matter 除去）
+STEP10_SHARE_PROMPT_REL = "prompts/ops/share_short_from_company.md"
+
+
+def _step6_gate_defaults() -> None:
+    for key, _, _ in STEP6_GATE_ITEMS:
+        st.session_state.setdefault(f"gate6_chk_{key}", False)
+        st.session_state.setdefault(f"gate6_lv_{key}", 3)
+    st.session_state.setdefault("step6_extra", "")
+
+
+def _step6_critical_blockers() -> list[str]:
+    """必須扱いの項目で未チェックのラベルを返す（見落とし防止）。"""
+    out: list[str] = []
+    for key, lbl, mandatory in STEP6_GATE_ITEMS:
+        if not mandatory:
+            continue
+        if not st.session_state.get(f"gate6_chk_{key}", False):
+            short = lbl.split("—", 1)[0].strip() if "—" in lbl else lbl[:40]
+            out.append(short)
+    return out
+
+
+def _step6_combined_response_text() -> str:
+    rows: list[str] = [
+        "# ステップ6 合格判定（人チェック結果）",
+        "",
+        "| 確認 | 評価(1〜5) | 軸（3項目） |",
+        "|------|-----------|--------------|",
+    ]
+    lv_fmt = STEP6_LV_LABELS
+    for key, lbl, mandatory in STEP6_GATE_ITEMS:
+        ok = bool(st.session_state.get(f"gate6_chk_{key}", False))
+        lv = int(st.session_state.get(f"gate6_lv_{key}", 3))
+        chk = "☑ 確認済" if ok else "☐ 未確認"
+        m = "**必須**" if mandatory else "参考"
+        lab = lbl.replace("|", "\\|")
+        lv_s = lv_fmt.get(lv, str(lv))
+        rows.append(f"| {chk} | {lv}（{lv_s}） [{m}] | {lab} |")
+    extras = (st.session_state.get("step6_extra") or "").strip()
+    rows.extend(["", "## 追加メモ（自由記述）", extras or "_（なし）_"])
+    return "\n".join(rows)
+
+
+def _responses_for_save() -> list[str]:
+    """ディスク保存用。ステップ6はチェックリスト＋追加メモを合成して書き出す。"""
+    r = list(_all_responses())
+    r[5] = _step6_combined_response_text()
+    return r
+
+
+def _build_step10_claude_share_markdown() -> str:
+    base = read_prompt_body_for_copy(STEP10_SHARE_PROMPT_REL).strip()
+    art = (st.session_state.get("step10_article") or "").strip()
+    url = (st.session_state.get("step10_note_url") or "").strip()
+    parts: list[str] = []
+    parts.append("# Claude 用・シェア文案生成（1 メッセージにそのまま貼る）\n\n")
+    if base:
+        parts.append("## リポジトリ標準テンプレ\n\n")
+        parts.append(base + "\n\n---\n\n")
+    parts.append("## 今回の入力（この UI から挿入）\n\n")
+    parts.append(f"### note の公開 URL\n{url or '（未入力）'}\n\n")
+    parts.append("### 最終版の記事全文（本文）\n\n")
+    parts.append(f"{art or '（未入力）'}\n\n")
+    parts.append(
+        "---\n\n## 依頼（必ずすべて出力）\n\n"
+        "上記の **記事全文** と **公開 URL** に忠実に、標準テンプレの **出力形式**に従い、次を **すべて** 出力してください。\n"
+        "1. **X 向け**: **掲載用URL付きの投稿案を3通り**（①②③）。**3通すべて**に上記 **公開 URL** を必ず含める。"
+        "　2. **ハッシュタグ（X 向け）**　"
+        "3. **LinkedIn 日本語**: **約300字前後**（250〜350字目安）＋必要ならURL1行　"
+        "4. **LinkedIn 英語**: **約280〜360 characters** の短文（日本語と意味対応）＋必要ならURL1行　"
+        "5. **ハッシュタグ（LinkedIn 向け）**　6. **投稿前チェック**（最大3項）\n"
+        "※ 公開 URL が無い場合のみ、掲載用リンクは **`https://onetech.jp` に統一**してよい。ソースにない事実は足さない。\n"
+    )
+    return "".join(parts)
+
+
+# ステップ5で総合が合格点に届かなかったとき、右列に出す Claude 再改稿用（STEP4＝改稿・STEP5＝二次評価の貼り戻し）
+DEFAULT_PROMPT_SECOND_FAIL_CLAUDE = (
+    "あなたは note 記事のライターです。次の「二次評価（ChatGPT）」の指摘をすべて反映し、\n"
+    "現状の改稿を **note 向けにさらに改稿**した**全文のみ**を出力してください（前置きや説明は最小に）。\n\n"
+    "### 二次評価（ChatGPT）\n{{STEP5}}\n\n### 改稿稿（現状）\n{{STEP4}}\n"
+)
 
 # ステップ1で Claude に渡す「対話型で記事を組み立てる」運用指示（材料の後に付与）
 STEP1_INTERACTIVE_CLAUDE_FLOW = """
@@ -251,6 +377,12 @@ def _save_session(
         (base / f"step{n:02d}-response-from-web.md").write_text(responses[i], encoding="utf-8")
     if scores:
         (base / "00-scores.json").write_text(json.dumps(scores, ensure_ascii=False, indent=2), encoding="utf-8")
+    t10a = st.session_state.get("step10_article", "") or ""
+    t10u = st.session_state.get("step10_note_url", "") or ""
+    (base / "step10-share-inputs.md").write_text(
+        f"# ステップ10 入力（シェア前）\n\n## note 公開 URL\n{t10u}\n\n## 最終版記事全文\n\n{t10a}\n",
+        encoding="utf-8",
+    )
     (base / "99-evaluation.md").write_text(evaluation, encoding="utf-8")
     (base / "README.txt").write_text(
         "手動ハンドオフのログ（10段）。\n"
@@ -368,6 +500,10 @@ def _clear_resp3() -> None:
     st.session_state["resp_3"] = ""
 
 
+def _pull_step7_to_step10() -> None:
+    st.session_state["step10_article"] = (st.session_state.get("resp_6") or "").strip()
+
+
 def _hdr_input() -> None:
     st.markdown("#### あなたが入力する")
 
@@ -417,6 +553,10 @@ def main() -> None:
     _hc_init()
     _eval_state_defaults()
     _step1_ui_defaults()
+    st.session_state.setdefault("prompt_second_fail_claude", DEFAULT_PROMPT_SECOND_FAIL_CLAUDE)
+    st.session_state.setdefault("step10_article", "")
+    st.session_state.setdefault("step10_note_url", "")
+    _step6_gate_defaults()
 
     _flash = st.session_state.pop("_flash_ok", None)
     if _flash:
@@ -444,7 +584,7 @@ def main() -> None:
             path = _save_session(
                 title=st.session_state.get("session_title", "") or "session",
                 prompts=_all_prompts(),
-                responses=_all_responses(),
+                responses=_responses_for_save(),
                 evaluation=st.session_state.get("evaluation_text", "") or "",
                 scores=scores,
             )
@@ -660,28 +800,101 @@ def main() -> None:
                     f" マクロ `{_m}` は{_mv}の貼り戻しで置換されます。"
                 )
                 st.text_area("テンプレ", height=160, key=pk, label_visibility="collapsed")
+            if i == 4:
+                with st.expander("Claude 再改稿テンプレ（不合格時・右列に表示）", expanded=False):
+                    st.caption("`{{STEP4}}`＝ステップ4の改稿、`{{STEP5}}`＝このステップ左に貼った ChatGPT の評価全文")
+                    st.text_area(
+                        "テンプレ",
+                        height=160,
+                        key="prompt_second_fail_claude",
+                        label_visibility="collapsed",
+                    )
 
         with R:
             _hdr_app_output()
             _out_spec(STEP_OUTPUT_SPEC[i])
-            _copy_block(
-                title=f"{tool} に貼る文",
-                body=rendered,
-                file_name=f"step{i+1:02d}-for-chatgpt.md",
-                paste_to=f"**{tool}**（Web）を開いてください。",
-                next_step=f"右のブロックをコピーして {tool} に貼り、返答は左列に貼ってください。",
-            )
-            if i == 2 and rs.strip():
-                _out_spec("Claude に貼る改稿依頼（評価・一次記事が埋まった状態）")
-                claude_revise = _render_for_step(st.session_state.get("prompt_3", ""), responses_all, 3)
-                _copy_block(
-                    title="Claude に貼る文（一次評価を反映して改稿）",
-                    body=claude_revise,
-                    file_name="step04-for-claude.md",
-                    paste_to="**Claude**（Web）を開いてください。",
-                    next_step="右のブロックをコピーして Claude に貼り、返ってきた改稿全文は **ステップ4 の左列**に貼ってください。",
-                    dl_key="_dl_step04_claude_revise",
-                )
+
+            if i == 2:
+                if rs.strip():
+                    _out_spec("Claude に貼る改稿依頼（一次評価・一次記事が埋まった状態）")
+                    claude_revise = _render_for_step(st.session_state.get("prompt_3", ""), responses_all, 3)
+                    _copy_block(
+                        title="Claude に貼る文（一次評価を反映して改稿）",
+                        body=claude_revise,
+                        file_name="step04-for-claude.md",
+                        paste_to="**Claude**（Web）を開いてください。",
+                        next_step="右をコピーして Claude に貼り、返ってきた改稿全文は **ステップ4 の左列**に貼ってください。",
+                        dl_key="_dl_step04_claude_revise",
+                    )
+                else:
+                    st.info(
+                        "左に ChatGPT の返答を貼ると、ここに **Claude 改稿依頼**が表示されます。"
+                        " **一次評価を ChatGPT に依頼する文**は **ステップ2 の右列**からコピーしてください。"
+                    )
+
+            elif i == 4:
+                ra_r = _all_responses()
+                gpt_rendered = _render_for_step(pr, ra_r, i)
+
+                if passed and rs.strip():
+                    if ov:
+                        st.warning(
+                            "オーバーライドにより合格として扱っています。"
+                            "ウィザードの ▶ で **ステップ6** に進み、編集・メモを残してください。"
+                        )
+                    else:
+                        st.success(
+                            f"{sc} 点で合格ライン（{PASS_THRESHOLD} 点以上）です。"
+                            "ウィザードの ▶ で **ステップ6** に進み、あなたの編集・評価メモを記入してください。"
+                        )
+                    with st.expander("ChatGPT 二次評価の依頼文を再コピー（任意）", expanded=False):
+                        _copy_block(
+                            title=f"{tool} に貼る文（二次評価・テンプレ）",
+                            body=gpt_rendered,
+                            file_name="step05-for-chatgpt.md",
+                            paste_to=f"必要なときだけ **{tool}** に貼り直してください。",
+                            next_step="このステップ左に返答と総合スコアがすでにある場合は再評価不要です。",
+                            dl_key="_dl_step05_chatgpt_repeat_passed",
+                        )
+
+                elif rs.strip() and sc > 0 and sc < PASS_THRESHOLD and not ov:
+                    _out_spec(f"{PASS_THRESHOLD} 点未満：**Claude** に貼って再改稿し、**ステップ4** を差し替えてから再度評価してください")
+                    claude_retry = _render_for_step(
+                        st.session_state.get("prompt_second_fail_claude", DEFAULT_PROMPT_SECOND_FAIL_CLAUDE),
+                        ra_r,
+                        5,
+                    )
+                    _copy_block(
+                        title="Claude に貼る文（二次評価を反映して再改稿）",
+                        body=claude_retry,
+                        file_name="step05-for-claude-revise.md",
+                        paste_to="**Claude**（Web）を開いてください。",
+                        next_step="返ってきた全文で **ステップ4 左列**を上書きし、再度このステップで ChatGPT に評価してもらってください。",
+                        dl_key="_dl_step05_claude_after_fail",
+                    )
+                    with st.expander("ChatGPT に貼る文（二次評価・テンプレ再コピー）", expanded=False):
+                        _copy_block(
+                            title=f"{tool} に貼る文",
+                            body=gpt_rendered,
+                            file_name="step05-for-chatgpt.md",
+                            paste_to=f"**{tool}**（Web）を開いてください。",
+                            next_step=f"右のブロックをコピーして {tool} に貼り、返答は左列に貼ってください。",
+                            dl_key="_dl_step05_chatgpt_repeat_failed",
+                        )
+                else:
+                    _copy_block(
+                        title=f"{tool} に貼る文（二次評価）",
+                        body=gpt_rendered,
+                        file_name="step05-for-chatgpt.md",
+                        paste_to=f"**{tool}**（Web）を開いてください。",
+                        next_step=f"右のブロックをコピーして {tool} に貼り、返答は左列に貼ってください。",
+                        dl_key="_dl_step05_for_chatgpt_main",
+                    )
+                    if rs.strip() and sc == 0:
+                        st.caption(
+                            f"総合スコア（右の数値入力）を **1〜100** で入力すると表示が切り替わります。"
+                            f" **{PASS_THRESHOLD} 点以上**でステップ6の案内、未満で Claude 再改稿用がメイン表示になります。"
+                        )
 
     elif i == 3:
         L, R = _two_cols()
@@ -705,6 +918,25 @@ def main() -> None:
         with R:
             _hdr_app_output()
             _out_spec(STEP_OUTPUT_SPEC[3])
+            rev_full = (st.session_state.get("resp_3") or "").strip()
+            if rev_full:
+                # 左列の text_area 実行後の最新の resp_* を使う
+                ra_fresh = _all_responses()
+                gpt_second = _render_for_step(
+                    st.session_state.get("prompt_4", ""),
+                    ra_fresh,
+                    4,
+                )
+                _copy_block(
+                    title="ChatGPT に貼る文（二次評価・改稿後の記事）",
+                    body=gpt_second,
+                    file_name="step05-for-chatgpt.md",
+                    paste_to="**ChatGPT**（Web）を開いてください。",
+                    next_step="右をコピーして ChatGPT に貼り、返答と総合スコアは **ステップ5 の左列**に入力してください。",
+                    dl_key="_dl_step04_right_chatgpt_second_eval",
+                )
+            else:
+                st.info("左に **改稿後の記事全文** を貼ると、ここに **ChatGPT 二次評価**用のコピー文が表示されます。")
             with st.expander("Claude 向け・改稿依頼プロンプト（コピー用・再掲）", expanded=False):
                 _copy_block(
                     title="Claude に貼る文（一次評価を反映した依頼）",
@@ -717,15 +949,93 @@ def main() -> None:
             with st.expander("このステップのテンプレを編集", expanded=False):
                 st.text_area("テンプレ", height=160, key=pk, label_visibility="collapsed")
 
+    elif i == 5:
+        _step6_gate_defaults()
+        L, R = _two_cols()
+        blockers = _step6_critical_blockers()
+        with L:
+            _hdr_input()
+            _in_spec(_in_spec_list[5])
+            st.caption(
+                "★ の **3 軸すべて**が公開前の必確認です（未チェックで警告。**保存はブロックしません**）。"
+                " 1〜5 は各軸の自己評価（残リスクの把握用）。"
+            )
+            if blockers:
+                st.error(
+                    "**必須確認が未チェックです（見落とし防止）**: "
+                    + "、".join(blockers)
+                    + "。問題なければ左のチェックを入れてください。"
+                )
+            for key, lbl, mandatory in STEP6_GATE_ITEMS:
+                st.divider()
+                st.markdown("★ " + lbl)
+                st.checkbox("上記を確認した", key=f"gate6_chk_{key}")
+                st.select_slider(
+                    "自己評価（1〜5）",
+                    options=[1, 2, 3, 4, 5],
+                    format_func=lambda x, _m=STEP6_LV_LABELS: _m[x],
+                    key=f"gate6_lv_{key}",
+                )
+            st.text_area("追加メモ（自由記述・任意）", height=140, key="step6_extra")
+        with R:
+            _hdr_app_output()
+            _out_spec(STEP_OUTPUT_SPEC[5])
+            st.info(
+                "**人による最終ゲート**です（ChatGPT の点数合格とは別レイヤ）。"
+                " **ログ保存**で左の内容が `step06-response-from-web.md` に表形式でまとまります。"
+            )
+            st.markdown("**保存時プレビュー（合成メモ）**")
+            st.code(_step6_combined_response_text(), language="markdown")
+            with st.expander("定型以外のメモテンプレを編集（任意・上級者）", expanded=False):
+                st.text_area("prompt_5 テンプレ", height=120, key=pk, label_visibility="collapsed")
+
+    elif i == 9:
+        L, R = _two_cols()
+        with L:
+            _hdr_input()
+            _in_spec(_in_spec_list[9])
+            st.caption("未入力なら **ステップ7 の確定稿**をコピーして貼っても構いません。")
+            st.button(
+                "ステップ7の確定稿をここに取り込む",
+                key="btn_step10_pull_step7",
+                on_click=_pull_step7_to_step10,
+            )
+            st.text_area(
+                "最終版の記事全文",
+                height=260,
+                key="step10_article",
+                placeholder="公開前の最終本文を貼る",
+            )
+            st.text_input(
+                "note の公開 URL",
+                key="step10_note_url",
+                placeholder="https://note.com/...",
+            )
+            st.markdown("##### 業務完了：シェア文案の保存")
+            st.text_area(
+                "**Claude** の返答（X / LinkedIn 文案・ハッシュタグなど）全文",
+                height=200,
+                key=rk,
+                placeholder="Claude の出力をそのまま貼るとログ保存時に残ります",
+            )
+        with R:
+            _hdr_app_output()
+            _out_spec(STEP_OUTPUT_SPEC[9])
+            share_md = _build_step10_claude_share_markdown()
+            _copy_block(
+                title="Claude に貼る文（シェア文案・Markdown 1本）",
+                body=share_md,
+                file_name="step10-claude-share.md",
+                paste_to="**Claude**（Web）を開いてください。",
+                next_step="右をすべてコピーし、1 メッセージとして Claude に貼り、返答を左下に貼って **ログ保存**すれば完了です。",
+                dl_key="_dl_step10_claude_share_md",
+            )
+
     else:
         pr = st.session_state.get(pk, "")
         rendered = _render_for_step(pr, responses_all, i)
         if i == 7:
-            who, cap = "画像ツール", "**画像生成ツール**に貼り付けてください。"
-        elif i == 9:
-            who, cap = "Claude", "**Claude**（ブラウザ）に貼り付けてください。"
-        elif i == 5:
-            who, cap = "", ""
+            who, cap = "画像ツール", "**画像生成AI**に順に貼り、**画像を生成**してください（英語ブロック＝生成指示）。"
         elif i == 6:
             who, cap = "", ""
         elif i == 8:
@@ -737,6 +1047,11 @@ def main() -> None:
         with L:
             _hdr_input()
             _in_spec(_in_spec_list[i])
+            if i == 8:
+                st.caption(
+                    "**任意ステップ**です。URL を正本として残すなら **ステップ10** で十分な場合もあります。"
+                    " ここでは公開日時・短い所感・社内向け一行メモなどに使えます。"
+                )
             st.text_area(
                 "返答・メモ",
                 height=220,
@@ -747,6 +1062,12 @@ def main() -> None:
                 st.text_area("テンプレ", height=160, key=pk, label_visibility="collapsed")
         with R:
             _hdr_app_output()
+            if i == 7:
+                st.warning(
+                    "**このアプリは画像ファイルを生成しません。** 右に出るのは、画像生成サービスへ渡す **英語プロンプト（テキスト）** だけです。"
+                    " **Midjourney / DALL·E / Adobe Firefly / Gemini / その他**のプロンプト入力欄にコピーし、"
+                    "各ツールで **生成（Generate）** を実行してください。PNG/JPEG が欲しい場合は必ず外部ツールが必要です。"
+                )
             if rendered.strip():
                 _out_spec(STEP_OUTPUT_SPEC[i])
                 if who:
@@ -757,7 +1078,7 @@ def main() -> None:
                         paste_to=cap,
                         next_step=f"右をコピーして {who} に貼り、結果は左列に貼ってください。",
                     )
-                elif i in (5, 6):
+                elif i == 6:
                     _copy_block(
                         title="コピー用（任意）",
                         body=rendered,

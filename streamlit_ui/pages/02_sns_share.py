@@ -38,8 +38,8 @@ def _build_prompt() -> None:
     parts.append(f"- ディスクリプション等:\n\n{yt_txt or '（未入力）'}\n\n")
     parts.append(
         "---\n\n## 出力の指定（漏れなく）\n"
-        "- **X**: 投稿文＋掲載用URL\n"
-        "- **LinkedIn**: **日本語** と **英語** のシェア文それぞれ＋URL\n"
+        "- **X**: **掲載用URL付きの投稿案3通り**（3通すべてにURL必須）。各案260文字以内目安\n"
+        "- **LinkedIn**: **日本語は約300字前後**、**英語は約280〜360 characters** の短文。必要ならURL1行\n"
         "- **ハッシュタグ**: X用・LinkedIn用を別ブロックで（標準プロンプトの指示に従う）\n"
     )
     st.session_state["sns_prompt_built"] = "".join(parts)
