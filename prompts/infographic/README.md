@@ -7,15 +7,17 @@
 
 | ファイル | 役割 |
 |----------|------|
-| `spec_hero_ogp_infographic.md` | 構図・配色・品質などの **仕様の正本**（ここを直すと全体の基準が変わる） |
-| `meta_build_image_prompt.md` | 仕様＋今回の内容から、**画像AIに貼る1本のプロンプト**を生成させるための **メタ用プロンプト** |
+| `spec_hero_ogp_infographic.md` | Web ヒーロー／**OGP 向けフラット・図解**の仕様の正本 |
+| `spec_note_editorial_cinematic.md` | **B**・note 向け編集リアル／シネマティック（画像内テキスト原則なし） |
+| `spec_note_dx_workflow_infographic.md` | **C（既定）**・横長 **DXワークフロー** インフォ（5ステップ＋下部KPI＋日本語キャプション） |
+| `meta_build_image_prompt.md` | **A / B / C** を選んで**画像AI用1本**を生成する **メタ用**（note アイキャッチ未指定時は **C**） |
 
 ## 運用の流れ
 
-1. `meta_build_image_prompt.md` をレビュー用／執筆用の **別LLM** に渡し、**「今回のタイトル・要点・数値」** を入力する。  
+1. `meta_build_image_prompt.md` をレビュー用／執筆用の **別LLM** に渡し、**用途モード（A／B／C）** と **「今回のキャプション・ステップ文言」** 等を入力する（note のサービス事例アイキャッチで未指定なら **C**）。  
 2. 出力された **画像生成用プロンプト** を人間が手直しする。  
 3. 手直し済みを画像生成AIに貼る。  
-4. 仕様そのものを変えたいときは **`spec_hero_ogp_infographic.md` を編集**し、必要ならメタ側の指示も揃える。
+4. 仕様を変えるときは **`spec_hero_ogp_infographic.md`（A）**、`spec_note_editorial_cinematic.md`（B）、**`spec_note_dx_workflow_infographic.md`（C）** のいずれかを編集し、**`meta_build_image_prompt.md`** とも整合させる。
 
 ## 言語
 

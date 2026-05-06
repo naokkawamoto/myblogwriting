@@ -24,7 +24,7 @@
 | `sections/05_themes.md` | 主軸テーマ（学習・資格・技術・CURIOSITY CHALLENGE 等） |
 | `sections/06_confidentiality.md` | 機密・表現の線引き |
 | `sections/07_links_cta.md` | 誘導は公式サイトのみ |
-| `sections/08_closing_required.md` | 締め定型（Today is a wonderful day.） |
+| `sections/08_closing_required.md` | 締め定型（WHAT A WONDERFUL DAY TODAY!・本文と接続する日本語つき） |
 | `sections/09_author_background.md` | 個人として触れてよい経歴の骨子（参照用。必要なときだけ・毎回すべて使う必要なし） |
 | `sections/99_task_input.md` | 依頼文の置き場（毎回のテーマ入力） |
 | `assemble.sh` | 結合スクリプト |

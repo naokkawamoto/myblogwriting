@@ -11,7 +11,7 @@ One Technology Japan の **マーケ／note／将来の SNS 用プロンプト**
 | `prompts/social-company-pipeline/` | 記事（HTML/テキスト）・YouTube（またはディスクリプション）起点の X / LinkedIn 下書き → 外部LLM評価 → 改稿 → 人間レビュー（詳細はその中の `README.md`） |
 | `prompts/ops/` | **日常運用の入口**（テーマ→note／会社コンテンツ→X・LinkedIn短文）。`README.md` から |
 | `prompts/review/` | **check as LLM**（FM 非依存・採点つき等）。`README.md` から |
-| `prompts/infographic/` | ヒーロー／OGP インフォ用 **仕様** と **画像プロンプト生成メタ**。`README.md` から |
+| `prompts/infographic/` | ヒーロー／OGP／**note 向け DX 横長インフォ**の **仕様** と **画像プロンプト生成メタ**（`README.md`） |
 | `streamlit_ui/` | **ローカル Web**（Streamlit）。**手動ハンドオフ**（ハブ `manual_home.py`・①は `manual_chain_app`）/ **API 生成** `api/streamlit_app.py`。`streamlit_ui/README.md` から |
 | `teacher/` | **別 Git**：個人用ブログ執筆用（例: [myblogwriting](https://github.com/naokkawamoto/myblogwriting)）。`teacher/README.md` と `scripts/setup_teacher_blog_repo.sh` |
 

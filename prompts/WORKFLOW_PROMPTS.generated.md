@@ -22,6 +22,8 @@
 |----------|-----------|------|
 | `prompts/infographic/meta_build_image_prompt.md` | (front matter なし→手で振り分け) |  |
 | `prompts/infographic/spec_hero_ogp_infographic.md` | (front matter なし→手で振り分け) |  |
+| `prompts/infographic/spec_note_dx_workflow_infographic.md` | (front matter なし→手で振り分け) |  |
+| `prompts/infographic/spec_note_editorial_cinematic.md` | (front matter なし→手で振り分け) |  |
 | `prompts/note/dist/note_writer_prompt.md` | (front matter なし→手で振り分け) |  |
 | `prompts/social-company-pipeline/02_external_evaluator.md` | (front matter なし→手で振り分け) |  |
 | `prompts/social-company-pipeline/03_writer_refine.md` | (front matter なし→手で振り分け) |  |

@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## 0.1.4 — 2026-05-07
+
+- `08_closing_required.md`: **WHAT A WONDERFUL DAY TODAY!** を削除ではなく意味付きで置く運用へ（単独文末を避ける旨を明記）
+- note 評価の `../review/evaluator_scored_generic.md`: 当該英文の削除提案を評価上禁止／接続弱いときは前置き追加を指示するよう追記
+
 ## 0.1.3 — 2026-05-04
 
 - `README.md`: check as LLM の参照先を `../review/` に更新（実フォルダに合わせる）
