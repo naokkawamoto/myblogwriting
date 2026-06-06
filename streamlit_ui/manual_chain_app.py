@@ -2,6 +2,8 @@
 ① note記事作成フロー（単体起動可）。ハブは `manual_home.py`。
 
 - ステップ1: `prompts/**/*.md` から標準プロンプト＋カスタム結合。評価は ChatGPT のみ（正本 `prompts/review/evaluator_scored_generic.md`）。
+- 9 ステップ構成（旧10→新9: 合格メモ・公開メモを削除、noteタグ生成を追加）。
+- ステップ8 画像プロンプトは A 実写 / B イラスト・アニメ / C インフォ図解 の **3 スタイル選択**。
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ import streamlit as st
 from handoff_common import read_prompt_body_for_copy
 from ot_marketing.paths import repo_root
 
-NUM_STEPS = 10
+NUM_STEPS = 9
 PASS_THRESHOLD = 90
 EVAL_STEP_INDICES = frozenset({2, 4})
 # 評価ステップ（3・5）で「ウィザードを戻さず」同じ画面から取り直せる回数（1ラウンド目を含めて最大4回）
@@ -39,11 +41,10 @@ def _note_input_specs() -> list[str]:
         f" **{PASS_THRESHOLD} 点以上**で次へ。再評価ボタン最大 {EVAL_MAX_ROUNDS} 回。"
     )
     tail = [
-        "公開前ゲート（**3軸**チェック＋1〜5評価／必須軸の見落とし防止）。",
-        "手修正後の確定稿。",
-        "画像ツールの結果メモ（なくても可）。",
-        "公開直後メモなど（任意・URL メイン運用ならステップ10で記録でも可）。",
-        "最終記事・公開 URL・Claude のシェア文案（返答貼り付け）。",
+        "手修正後の確定稿（本文だけ貼る）。",
+        "Claude にタグ案を依頼（確定稿が自動で埋まる）。返ってきたタグを貼る。",
+        "スタイル A/B/C を選んで右の英語プロンプトを生成 → 画像ツールへ。",
+        "ステップ6の確定稿を **自動引継ぎ**。公開URLを入れて、右のClaudeプロンプトをコピー。返答を貼り付けて業務完了。",
     ]
     return [s0, s1, s2, s3, s4, *tail]
 
@@ -54,11 +55,10 @@ NOTE_NAV_LABELS = [
     "3 一次評価 → Claude改稿",
     "4 改稿を貼る",
     "5 二次評価 → ChatGPT",
-    "6 合格メモ",
-    "7 確定稿",
-    "8 画像",
-    "9 公開メモ（任意・短い記録）",
-    "10 シェア（稿＋URL→Claude）",
+    "6 確定稿",
+    "7 noteタグ（Claude）",
+    "8 画像（A/B/C 選択）",
+    "9 シェア（稿＋URL→Claude）",
 ]
 
 NOTE_HEADINGS = [
@@ -67,11 +67,10 @@ NOTE_HEADINGS = [
     "ステップ3　一次評価（ChatGPT）を貼る・採点",
     "ステップ4　改稿（Claude）を貼る",
     "ステップ5　二次評価（ChatGPT）",
-    "ステップ6　合格判定メモ",
-    "ステップ7　確定稿",
-    "ステップ8　画像プロンプト → 画像ツール",
-    "ステップ9　公開メモ（任意・URL は主にステップ10でも可）",
-    "ステップ10　シェア文案（最終稿・URL → Claude）",
+    "ステップ6　確定稿",
+    "ステップ7　noteタグ作成（Claude）",
+    "ステップ8　画像プロンプト → 画像ツール（A/B/C 選択）",
+    "ステップ9　シェア文案（最終稿・URL → Claude）",
 ]
 
 STEP_OUTPUT_SPEC = [
@@ -80,163 +79,185 @@ STEP_OUTPUT_SPEC = [
     "一次評価の依頼文は **ステップ2 の右**でコピー。ここでは左に返答を貼ると **Claude 改稿依頼**だけが右に出ます。",
     "左に改稿全文を貼ると、右列に **ChatGPT 二次評価**用のコピー文が出ます。下の折りたたみは Claude 改稿依頼の再掲。",
     "左に ChatGPT の返答を貼り、点数を入れると分岐：**合格**→ステップ6へ。**不合格**→右に Claude 再改稿用。**未採点（0）**→二次評価のコピー文のみ。",
-    "人の **合格判定**：左で **3軸**ごとにチェック＋5段階評価（保存時に表形式で合成）。",
-    "画像生成AIに貼る**英語プロンプト**（確定稿参照・生成実行前提の指示）。",
-    "（テンプレに応じて出る場合のみ）コピー用テキスト。",
-    "（テンプレに応じて出る場合のみ）コピー用テキスト。",
-    "左に最終記事＋note URL。右に **Claude 用シェア生成プロンプト（Markdown）**。下に Claude の返答を貼って業務完了。",
+    "確定稿は左に貼るだけ（右はコピー用テキストなし）。",
+    "Claude に貼る **noteタグ生成プロンプト**（確定稿が埋まります）。",
+    "選択スタイル（A 実写 / B イラスト・アニメ / C インフォ図解）に応じた **英語の画像生成プロンプト**。",
+    "ステップ6 の確定稿が **自動で埋まった** Claude 用シェア生成プロンプト（Markdown）。下に Claude の返答を貼って業務完了。",
 ]
 
+
+# ===== 画像プロンプト：3 スタイル =====
+IMAGE_STYLE_CHOICES = {
+    "A": "A. リアル写真風（実写・ドキュメンタリー）",
+    "B": "B. イラスト・アニメ風（フラット／日本アニメ・タッチ）",
+    "C": "C. インフォグラフィック図解（横長プロ品質・データ可視化）",
+}
+
+IMAGE_COMMON_HEAD = (
+    "あなたはビジュアルディレクター兼、画像生成AIへのプロンプト設計者です。\n"
+    "次の **確定稿** を読み、**note 記事用のアイキャッチ1枚＋必要な本文挿絵**について、"
+    "**画像生成ツール（例: DALL·E 3 / GPT-4o image / Imagen 3 / Recraft V3 / Ideogram 2 / Flux 1.1 Pro 等）**"
+    "にそのまま貼って画像を生成するための **英語の画像生成プロンプト**だけを出力してください。\n\n"
+)
+
+IMAGE_STYLE_A_BODY = (
+    "## スタイル既定（A：リアル写真風／実写ドキュメンタリー）\n"
+    "- **写真リアリズム**で、建設・リノベ DX の現場（人物・端末・図面）を **ドキュメンタリー風**に切り取る。\n"
+    "- 自然光、シネマティック、35〜50mm 相当の焦点距離、被写界深度浅め、空気感のある粒状感。\n"
+    "- 人物は **ジェネリック**（実在個人の顔の精密再現は禁止）。実在ブランドロゴ・OS判読可能 UI は描かない。\n"
+    "- アイキャッチ内テキストは **最小限**：(a) 記事タイトル相当の短い日本語、(b) 下部の **必須英語締め `WHAT A WONDERFUL DAY TODAY!`** のみ。長文を画面いっぱいに描かない。\n"
+    "- 過剰ネオン SF、安物ストック調、刺激的な広告調は避ける。\n\n"
+)
+
+IMAGE_STYLE_B_BODY = (
+    "## スタイル既定（B：イラスト・アニメ風／フラット～日本アニメ・タッチ）\n"
+    "- **フラットイラスト** または **日本のアニメ風タッチ**（やわらかい線、清潔な色面）。建設・DX を親しみやすく表現。\n"
+    "- カラーパレットは白〜薄灰＋ブルー／シアンを基調に、アクセント1色まで。\n"
+    "- 人物はジェネリックなアニメ／イラスト調キャラクター。**実在人物の似顔絵は禁止**。\n"
+    "- 商標ロゴ・実在アプリ UI の精密再現は禁止（汎用スマホ・タブレット）。\n"
+    "- 描き文字は控えめ：アイキャッチでは **短い日本語タイトル相当＋下部の必須英語締め `WHAT A WONDERFUL DAY TODAY!`** のみ。本文挿絵は原則テキストなし。\n\n"
+)
+
+IMAGE_STYLE_C_BODY = (
+    "## スタイル既定（C：インフォグラフィック図解／横長プロ品質）\n"
+    "`prompts/infographic/spec_note_dx_workflow_infographic.md` に相当する **横長プロ品質インフォグラフィック**を既定とする。\n"
+    "- 白〜薄灰＋ブルー／シアン。**ヘッダー（主タイトル＋サブ）**／**左→右の 5 ステップフロー**"
+    "（現場→スキャン可視→点群3D→AI解析→図面＋端末）／**下部にベネフィット 3 点**＋**締めの一文**＋"
+    "**右下隅に必須英語締め `WHAT A WONDERFUL DAY TODAY!`**（記事の必須締めとして本図にも含める）。\n"
+    "- **読める日本語キャプション** をレイアウトに含める。確定稿から **見出し・数値・コピーを抽出**し、"
+    "英語プロンプト内で **その日本語全文を引用符つきで列挙**（画像に焼き付ける文言として）。\n"
+    "- アイコン＋やや立体的な現場／端末。商標ロゴ・実在 UI の精密再現は禁止。人物はジェネリック。\n"
+    "- 刺激的な広告調・過剰ネオン SF・安物ストック調は避ける。クリーンな **建設／リノベ DX** の信頼感。\n\n"
+)
+
+IMAGE_COMMON_RULES = (
+    "## 必須ルール（**サイズ厳守 ＋ 必須英語締めの確実描画 ＋ 余計な英文混入の禁止**）\n"
+    "- 出力はすべて **画像を生成するための実行指示**であること。記事の要約や感想だけで終わらせない。\n"
+    "- 各ブロックの先頭に **日本語で用途**（例: アイキャッチ／本文挿絵）と、**画像生成AIに貼って生成する**旨を一行で書く。\n"
+    "- 続けて **生成サイズと最終サイズ（トリミング前提）**を英語で一行：\n"
+    "  `Generate at 1792 × 1024 px (DALL·E 3 native landscape). Final crop to 1280 × 670 px (aspect 1.91:1). Top ~172 px and bottom ~172 px will be cropped. note's actual display further trims ~35 px top and bottom, so keep critical content inside an INNER safe area of 1280 × 600 px (centered).`\n"
+    "- その直後に **英語の本編プロンプト**。\n"
+    "- **画像内テキスト＝(a) 指定した日本語コピー、(b) 必須英語締め `WHAT A WONDERFUL DAY TODAY!` のみ。**\n"
+    "- **必須**：アイキャッチには **右下隅または下部中央** に英語のサインオフ `WHAT A WONDERFUL DAY TODAY!` を **1 行・全大文字・感嘆符 1 個**で必ず描く（記事の必須締めコピーで、本図にも含める）。**スペル・大文字小文字・感嘆符の改変禁止**。位置はクロップ後の 1280×670 セーフエリア内（下端から少し内側）。\n"
+    "- 以下のような **意図しない英語フレーズの自動挿入は絶対に行わない**（明示的に禁止）：\n"
+    "  - `Hello` / `Welcome` / `Lorem ipsum` / 装飾英単語ステッカー / 透かしロゴ / ランダムな西暦 / `AI` の文字単体 / その他のスローガン。\n"
+    "- 英語プロンプト本文に必ず以下を含める（コピー&貼り付け可・改変禁止）：\n"
+    "  `Render the brand sign-off \"WHAT A WONDERFUL DAY TODAY!\" as a single line near the bottom-right of the eyecatch, in clean sans-serif uppercase with one exclamation mark, smaller than the main title, fully legible, no spelling errors. This sign-off MUST appear. Do NOT add any other English text — no greetings, slogans, decorative English stickers, watermarks, dates, or filler phrases. Only render the Japanese strings explicitly listed in quotes below plus the brand sign-off above.`\n"
+    "- アイキャッチに日本語を入れる場合は **読める大きさ**で、**指定の日本語文字列だけ**を引用符で列挙。\n"
+    "- **禁止**：実在ブランドロゴ、OS の判読可能 UI、実在個人の顔の精密再現。\n"
+    "- 英語ブロックの末尾に **ツール用比率フラグ**（例: `--ar 1.91:1` / `--ar 3:2` / `--ar 1:1`）を必ず付ける。\n"
+    "- **モデル指定行を英語プロンプトの直前に入れる**：\n"
+    "  例: `Use the latest model with strong Japanese typography support (DALL·E 3 / GPT-4o image / Imagen 3 / Recraft V3 / Ideogram 2 / Flux 1.1 Pro). Avoid legacy Midjourney for in-image Japanese text.`\n"
+    "- 英語プロンプト本文の冒頭に以下を必ず含める（コピー&貼り付け可・改変禁止）：\n"
+    "  `Render legible Japanese text exactly as quoted (no romanization, no kanji errors).\n"
+    "   Generate at 1792 × 1024 px (DALL·E 3 native landscape).\n"
+    "   Two-tier safe area:\n"
+    "     - Outer thumbnail area (after first crop to 1.91:1): central 1280 × 670 px.\n"
+    "     - INNER must-keep area (note's actual visible region after platform trim): central 1280 × 600 px.\n"
+    "   Place ALL text, faces, key icons, and the brand sign-off strictly inside the INNER 1280 × 600 px area.\n"
+    "   Treat the top ~207 px and the bottom ~207 px as crop margins — they may be cut off in the final note thumbnail; do not place any critical content (text, logos, key subjects, sign-off) there.`\n\n"
+    "## サイズ既定（DALL·E 3 を含む実用方針・**2段セーフエリア**）\n"
+    "- **生成サイズ**: 1792 × 1024 px（DALL·E 3 の `landscape` プリセット）\n"
+    "- **第1トリミング（自分でやる）**: 中央 1280 × 670 を残し、**上下 各 ~172 px** をカット → これが note の OGP / アイキャッチ標準（1.91:1）。\n"
+    "- **第2段セーフエリア（note の実表示で切られる分への保険）**: 中央 **1280 × 600 px** を *絶対セーフエリア* とする。テキスト・顔・主要アイコン・サインオフはすべてここに収める。\n"
+    "- **クロップマージン**（重要要素を置かない領域）: 1792×1024 の **上下 各 ~207 px**（172 + 35）。ここは背景・グラデーション・薄い装飾のみ。\n"
+    "- 横長挿絵: **1280×853・3:2**\n"
+    "- 正方形挿絵: **1280×1280・1:1**\n\n"
+    "## 出力の見出し構成（このままの見出し名で出力）\n"
+    "### アイキャッチ画像用プロンプト（画像生成AIへ貼る・**日本語対応モデル推奨・最新版**・DALL·E 3 想定）\n"
+    "Generate / Crop 行 → 英語プロンプト → `--ar 1.91:1`（最終トリミング後）\n\n"
+    "### 本文中の挿絵案 1（画像生成AIへ貼る・**日本語対応モデル推奨・最新版**）\n"
+    "用途: （日本語1行） / Size 行 → 英語 → `--ar 3:2`\n\n"
+    "### 本文中の挿絵案 2（画像生成AIへ貼る・**日本語対応モデル推奨・最新版**）\n"
+    "不要なら見出しだけ残し **「挿絵不要」** と一行。必要なら用途・Size・英語・`--ar 1:1` など。\n\n"
+    "### 確定稿（参照。本文は繰り返し出力しない）\n{{STEP6}}\n\n"
+    "---\n"
+    "上記の構成のみを出力し、**このテキストがそのまま画像生成AIの入力欄に入ること**で画像ができるよう、"
+    "英語部分を具体的に（被写体・光・構図・禁止事項）書く。**ここでの出力はチャットのみであり、PNG/JPEG は自動では付かない**。"
+    "**利用者が DALL·E 等へ英語プロンプトを貼って「生成」を押す運用である**。\n"
+    "**生成後、画像編集ソフトで上下 172 px ずつトリミングして 1280×670 にする運用**を、出力の末尾に1行（日本語）で必ず注記する：\n"
+    "「※ DALL·E で 1792×1024 を生成 → 上下 172 px ずつトリミングして 1280×670（1.91:1）にしてから note へアップロード。テキスト・サインオフは中央 1280×600 の内側に収めること（note 表示で上下 ~35 px が削られるため）。」\n"
+)
+
+
+def _image_prompt_for_style(style: str) -> str:
+    """A/B/C スタイル別の画像プロンプトテンプレを返す。"""
+    body = {
+        "A": IMAGE_STYLE_A_BODY,
+        "B": IMAGE_STYLE_B_BODY,
+        "C": IMAGE_STYLE_C_BODY,
+    }.get(style, IMAGE_STYLE_C_BODY)
+    return IMAGE_COMMON_HEAD + body + IMAGE_COMMON_RULES
+
+
+# ===== note タグ作成プロンプト（新ステップ7） =====
+NOTE_TAG_PROMPT = (
+    "あなたは note の編集者兼 SEO/タグ戦略担当です。次の **確定稿** をもとに、\n"
+    "note の検索・回遊・SEOで効くタグを **12〜15個** 提案してください。\n\n"
+    "## タグ構成（必ずこの割合で出す）\n"
+    "- **大テーマ**: 2〜3個（広い分野・カテゴリ）\n"
+    "- **中テーマ**: 3〜5個（記事の中心トピック）\n"
+    "- **ニッチ・固有名詞**: 4〜6個（具体的な企業名・技術名・地名など）\n"
+    "- **トレンド寄り**: 1〜2個（旬の話題・季節性）\n\n"
+    "## ルール\n"
+    "- **note で実際に使われているタグ（フォロワー数が多い既存タグ）** を優先する。新規タグは最小限。\n"
+    "- ハッシュタグ記号（`#`）は **付けない**（note の入力欄では不要）。\n"
+    "- **長すぎるタグ（10字以上）は避ける**。短く検索されやすい表記に。\n"
+    "- **過剰に汎用すぎる単語**（例: 「日記」「ビジネス」だけ）は避け、組み合わせや具体性で差別化する。\n"
+    "- 同じ意味の重複（例: AI と AI活用）は避ける。\n\n"
+    "## 出力形式（このままの表で出力）\n"
+    "| # | タグ | 区分 | 採用理由（1行） |\n"
+    "|---|------|------|------------------|\n"
+    "| 1 | … | 大テーマ | … |\n"
+    "| 2 | … | 大テーマ | … |\n"
+    "| … | … | … | … |\n\n"
+    "## 出力末尾に「コピペ用 1行」を必ず付ける\n"
+    "コピペ用（カンマ区切り・最大15個）: タグA, タグB, タグC, …\n\n"
+    "## 確定稿（参照。本文は繰り返し出力しない）\n"
+    "{{STEP6}}\n"
+)
+
+
 DEFAULT_PROMPTS: list[str] = [
-    "",
-    "## 一次ブログ（Claude の返答全文を貼る運用のメモ）\n",
-    (
+    "",  # 0: ステップ1（_build_step1_prompt で動的構築）
+    "## 一次ブログ（Claude の返答全文を貼る運用のメモ）\n",  # 1: 一次記事貼り欄のメモ
+    (  # 2: 一次評価（_eval_template_from_repo で初期上書き）
         "以下に一次ブログがある。採点基準に従い評価し、改善点を箇条書きで。\n"
         "（文末の **WHAT A WONDERFUL DAY TODAY!** は執筆方針上の必須締めであり、削除は提案しない。接続が弱いときは前置きを足す旨だけを指示する。）\n\n"
         "---\n{{STEP2}}\n---\n"
     ),
-    (
+    (  # 3: 改稿依頼（Claude）
         "あなたは note 記事のライターです。次の「一次評価」の指摘をすべて反映し、"
         "一次ブログを **note 向けに改稿**した**全文のみ**を出力してください（前置きや説明は最小に）。\n"
         "執筆ガイドラインどおり文末に **WHAT A WONDERFUL DAY TODAY!** を **省略せず残す**。"
         "評価が接続強化を求める場合は、**その英文の直前**に意味のある日本語を足す。**英文の削除や言い換えはしない**。\n\n"
         "### 一次評価（ChatGPT）\n{{STEP3}}\n\n### 一次ブログ（元稿）\n{{STEP2}}\n"
     ),
-    (
+    (  # 4: 二次評価（_eval_template_from_repo で初期上書き）
         "以下を評価（0〜100 の根拠つき）。\n"
         "（文末の **WHAT A WONDERFUL DAY TODAY!** は必須締め。**削除提案はしない**。接続強化のみ。）\n\n"
         "---\n{{STEP4}}\n---\n"
     ),
-    "ステップ3・5 の点数を見て、90 未満ならどこまで戻るかメモ。\n",
-    "手修正後の最終稿を貼る。\n",
-    (
-        "あなたはビジュアルディレクター兼、画像生成AIへのプロンプト設計者です。\n"
-        "次の **確定稿**を読み、**note 記事用のアイキャッチ1枚＋必要な本文挿絵**について、"
-        "**画像生成ツール（例: Midjourney / DALL·E / Firefly / SDXL / Imagen 等）にそのまま貼って画像を生成する**ための"
-        "**英語の画像生成プロンプト**だけを出力してください。\n\n"
-        "## 既定のビジュアル方針（アイキャッチ＝モード C）\n"
-        "**アイキャッチ 1 枚は**、`prompts/infographic/spec_note_dx_workflow_infographic.md` に相当する "
-        "**横長プロ品質インフォグラフィック**を既定とする（白〜薄灰＋ブルー／シアン、**ヘッダー（主タイトル＋サブ）**／"
-        "**左→右の 5 ステップフロー**（現場→スキャン可視→点群3D→AI解析→図面＋端末）／"
-        "**下部にベネフィット 3 点**＋**締めの一文**。**読める日本語キャプション**をレイアウトに含める。\n"
-        "- 確定稿から **見出し・数値・コピーを抽出**し、英語プロンプト内で **その日本語全文を引用符つきで列挙**（画像に焼き付ける文言として）。\n"
-        "- アイコン＋やや立体的な現場／端末。**商標ロゴ・実在アプリ UI の精密再現は禁止**（汎用スマホ・タブレット）。人物はジェネリック（特定の実在個人の顔にしない）。\n"
-        "- **刺激的な広告調・過剰ネオンSF・安物ストック調**は避ける。クリーンな **建設／リノベ DX** の信頼感。\n"
-        "**本文挿絵**が **シネマティックな一枚絵**向きなら、`spec_note_editorial_cinematic.md` のトーンでもよい（英語プロンプトで明示）。"
-        "**汎用 OGP のフラット一枚**がよい場合はユーザーが伝えたときだけ `spec_hero_ogp_infographic.md` に寄せる。\n\n"
-        "## 日本語テキスト描画と推奨モデル（重要）\n"
-        "- **画像内に読める日本語**を含めるため、**日本語テキスト描画に強いモデル**を最優先で使う：\n"
-        "  - **OpenAI ChatGPT の最新画像生成（DALL·E 3 / GPT-4o 画像）**、**Google Imagen 3 以降**、**Recraft V3**、**Ideogram 2.0 以降**、**Flux 1.1 Pro 以降**。\n"
-        "  - **Midjourney（〜v6.1）は日本語を文字化けさせやすい**ため、文字焼き付けが必要なアイキャッチには非推奨。Midjourney を使う場合は英語キャプションのみ、または文字なしビジュアルに切り替える。\n"
-        "- **必ず各サービスの「最新版モデル」**で生成する（GPT は最新の画像モデル、Midjourney は v7 以降、SD は SD3 以降、Firefly は Image 3 以降）。古いバージョンは選ばない。\n\n"
-        "## 必須ルール\n"
-        "- 出力はすべて **画像を生成するための実行指示**であること。記事の要約や感想だけで終わらせない。\n"
-        "- 各ブロックの先頭に **日本語で用途**（例: アイキャッチ／本文挿絵の説明箇所）と、**画像生成AIに貼って生成する**旨を一行で書く。\n"
-        "- 続けて **ピクセルサイズとアスペクト比**を英語で一行（例: `Size: 1280 × 670 px, aspect ratio 1.91:1`）。\n"
-        "- その直後に **英語の本編プロンプト**。アイキャッチ（モード C）では **すべての日本語見出し・数値コピーを引用符で明示**し、読めるタイポサイズとするよう書く。\n"
-        "- **禁止**：実在ブランドロゴ、OS の判読可能 UI、実在個人の顔の精密再現。アイキャッチでは **むやみに日本語を省かない**（C 既定）。シネマ挿絵では画像内テキスト原則なしと明記する。\n"
-        "- 英語ブロックの末尾に **ツール用比率フラグ**（例: `--ar 1.91:1` / `--ar 3:2` / `--ar 1:1`）を必ず付ける。\n"
-        "- セーフゾーン（四辺の余白）・極小UI禁止を英語で指示する。\n"
-        "- **モデル指定行を英語プロンプトの直前に入れる**：例: `Use the latest model with strong Japanese typography support (DALL·E 3 / Imagen 3 / Recraft V3 / Ideogram 2 / Flux 1.1 Pro). Avoid legacy Midjourney for in-image Japanese text.`\n"
-        "- 英語プロンプト本文の冒頭に **`Render legible Japanese text exactly as quoted (no romanization, no kanji errors).`** を含める。\n\n"
-        "## 出力の見出し構成（このままの見出し名で出力）\n"
-        "### アイキャッチ画像用プロンプト（画像生成AIへ貼る・**日本語対応モデル推奨・最新版**）\n"
-        "Size 行 → 英語プロンプト → `--ar 1.91:1`\n\n"
-        "### 本文中の挿絵案 1（画像生成AIへ貼る・**日本語対応モデル推奨・最新版**）\n"
-        "用途: （日本語1行） / Size 行 → 英語 → `--ar 3:2`\n\n"
-        "### 本文中の挿絵案 2（画像生成AIへ貼る・**日本語対応モデル推奨・最新版**）\n"
-        "不要なら見出しだけ残し **「挿絵不要」** と一行。必要なら用途・Size・英語・`--ar 1:1` など。\n\n"
-        "## サイズの既定（これに合わせる）\n"
-        "- アイキャッチ: **1280×670・1.91:1**\n"
-        "- 横長挿絵: **1280×853・3:2**\n"
-        "- 正方形挿絵: **1280×1280・1:1**\n\n"
-        "### 確定稿（参照。本文は繰り返し出力しない）\n{{STEP7}}\n\n"
-        "---\n"
-        "上記の構成のみを出力し、**このテキストがそのまま画像生成AIの入力欄に入ること**で画像ができるよう、"
-        "英語部分を具体的に（被写体・光・構図・禁止事項）書く。**ここでの出力はチャットのみであり、PNG/JPEG は自動では付かない**。"
-        "**利用者が Midjourney 等へ英語プロンプトを貼って「生成」を押す運用である**。\n"
-    ),
-    "記事 URL・公開日メモを貼る。\n",
-    "",
+    "手修正後の最終稿を貼る。\n",  # 5: 確定稿（左に本文だけ貼る）
+    NOTE_TAG_PROMPT,  # 6: noteタグ生成プロンプト
+    _image_prompt_for_style("C"),  # 7: 画像プロンプト（既定 C）
+    "",  # 8: シェア（_build_step9_claude_share_markdown で動的構築）
 ]
 
-# ステップ6：人による公開前ゲート（LLM の採点とは別レイヤ）
-# (key, 表示ラベル, ログ保存時「必須」欄／未チェック時の警告対象)
-# 運用しやすいよう **3 軸**（④運用・承認はワークフロー外のため省略）
-STEP6_GATE_ITEMS = [
-    (
-        "axis_accuracy",
-        "① **正確性・表記** — 事実・数値・固有名詞とソースの整合／誇大・未検証の有無／推測の明示／免責・広告・アフィ等の掲載要件",
-        True,
-    ),
-    (
-        "axis_brand_rights",
-        "② **ブランド・権利** — トーン・禁則（特定モデル名の露骨指名、不適切な他社言及等）／引用・画像・その他の権利・出典",
-        True,
-    ),
-    (
-        "axis_reader",
-        "③ **読者・構成** — 読者の誤解がないか／リード・見出し・結論・CTA が本文と整合しているか",
-        True,
-    ),
-]
 
-STEP6_LV_LABELS = {1: "要対応", 2: "不安あり", 3: "継続注意", 4: "概ねOK", 5: "問題なし"}
-
-# ステップ10：シェア用のリポジトリ標準（`read_prompt_body_for_copy` で front matter 除去）
-STEP10_SHARE_PROMPT_REL = "prompts/ops/share_short_from_company.md"
-
-
-def _step6_gate_defaults() -> None:
-    for key, _, _ in STEP6_GATE_ITEMS:
-        st.session_state.setdefault(f"gate6_chk_{key}", False)
-        st.session_state.setdefault(f"gate6_lv_{key}", 3)
-    st.session_state.setdefault("step6_extra", "")
-
-
-def _step6_critical_blockers() -> list[str]:
-    """必須扱いの項目で未チェックのラベルを返す（見落とし防止）。"""
-    out: list[str] = []
-    for key, lbl, mandatory in STEP6_GATE_ITEMS:
-        if not mandatory:
-            continue
-        if not st.session_state.get(f"gate6_chk_{key}", False):
-            short = lbl.split("—", 1)[0].strip() if "—" in lbl else lbl[:40]
-            out.append(short)
-    return out
-
-
-def _step6_combined_response_text() -> str:
-    rows: list[str] = [
-        "# ステップ6 合格判定（人チェック結果）",
-        "",
-        "| 確認 | 評価(1〜5) | 軸（3項目） |",
-        "|------|-----------|--------------|",
-    ]
-    lv_fmt = STEP6_LV_LABELS
-    for key, lbl, mandatory in STEP6_GATE_ITEMS:
-        ok = bool(st.session_state.get(f"gate6_chk_{key}", False))
-        lv = int(st.session_state.get(f"gate6_lv_{key}", 3))
-        chk = "☑ 確認済" if ok else "☐ 未確認"
-        m = "**必須**" if mandatory else "参考"
-        lab = lbl.replace("|", "\\|")
-        lv_s = lv_fmt.get(lv, str(lv))
-        rows.append(f"| {chk} | {lv}（{lv_s}） [{m}] | {lab} |")
-    extras = (st.session_state.get("step6_extra") or "").strip()
-    rows.extend(["", "## 追加メモ（自由記述）", extras or "_（なし）_"])
-    return "\n".join(rows)
+# ステップ9：シェア用のリポジトリ標準（`read_prompt_body_for_copy` で front matter 除去）
+STEP9_SHARE_PROMPT_REL = "prompts/ops/share_short_from_company.md"
 
 
 def _responses_for_save() -> list[str]:
-    """ディスク保存用。ステップ6はチェックリスト＋追加メモを合成して書き出す。"""
-    r = list(_all_responses())
-    r[5] = _step6_combined_response_text()
-    return r
+    """ディスク保存用（合成は不要、そのまま）。"""
+    return list(_all_responses())
 
 
-def _build_step10_claude_share_markdown() -> str:
-    base = read_prompt_body_for_copy(STEP10_SHARE_PROMPT_REL).strip()
-    art = (st.session_state.get("step10_article") or "").strip()
+def _build_step9_claude_share_markdown() -> str:
+    base = read_prompt_body_for_copy(STEP9_SHARE_PROMPT_REL).strip()
+    # 最終本文はステップ6の確定稿（resp_5）を直接参照する。
+    art = (st.session_state.get("resp_5") or "").strip()
     url = (st.session_state.get("step10_note_url") or "").strip()
     parts: list[str] = []
     parts.append("# Claude 用・シェア文案生成（1 メッセージにそのまま貼る）\n\n")
@@ -248,13 +269,22 @@ def _build_step10_claude_share_markdown() -> str:
     parts.append("### 最終版の記事全文（本文）\n\n")
     parts.append(f"{art or '（未入力）'}\n\n")
     parts.append(
-        "---\n\n## 依頼（必ずすべて出力）\n\n"
-        "上記の **記事全文** と **公開 URL** に忠実に、標準テンプレの **出力形式**に従い、次を **すべて** 出力してください。\n"
-        "1. **X 向け**: **掲載用URL付きの投稿案を3通り**（①②③）。**3通すべて**に上記 **公開 URL** を必ず含める。"
-        "　2. **ハッシュタグ（X 向け）**　"
-        "3. **LinkedIn 日本語**: **約300字前後**（250〜350字目安）＋必要ならURL1行　"
-        "4. **LinkedIn 英語**: **約280〜360 characters** の短文（日本語と意味対応）＋必要ならURL1行　"
-        "5. **ハッシュタグ（LinkedIn 向け）**　6. **投稿前チェック**（最大3項）\n"
+        "---\n\n## 依頼（必ずすべて出力／注釈・前置きなし）\n\n"
+        "上記の **記事全文** と **公開 URL** に忠実に、標準テンプレの **出力形式** に従い、次を **すべて** 出力してください。"
+        "**「投稿前チェック」「注釈」「前置き」は一切出さない**。\n\n"
+        "1. **X 向け**: **掲載用 URL 付きの投稿案を3通り**（①②③）。**3通すべて**に上記 **公開 URL** を必ず含める。\n"
+        "2. **ハッシュタグ（X 向け）**\n"
+        "3. **LinkedIn**: 以下の **固定フォーマットそのまま**で 1 本（前後の注釈・解説なし）\n\n"
+        "```\n"
+        "English Below\n"
+        "[日本語本文：1〜2段落、要点→展開→示唆。約250〜350字目安]\n"
+        "[公開URL]\n\n"
+        "[英語本文：意味対応の英語短文。約280〜360 characters 目安]\n"
+        "[公開URL]\n\n"
+        "#日本語タグ1 #日本語タグ2 #日本語タグ3 …（3〜5個）\n"
+        "#EnglishTag1 #EnglishTag2 #EnglishTag3 …（5〜8個）\n"
+        "```\n\n"
+        "※ ハッシュタグは **2行構成**：1行目に日本語タグ、2行目に英語タグ。日本語タグもスペース区切りで `#` を付ける。\n"
         "※ 公開 URL が無い場合のみ、掲載用リンクは **`https://onetech.jp` に統一**してよい。ソースにない事実は足さない。\n"
     )
     return "".join(parts)
@@ -393,6 +423,7 @@ def _save_session(
         "steps": NUM_STEPS,
         "pass_threshold_percent": PASS_THRESHOLD,
         "eval_scores_percent": scores,
+        "image_style": st.session_state.get("step8_image_style", "C"),
     }
     (base / "00-meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     for i in range(NUM_STEPS):
@@ -403,16 +434,20 @@ def _save_session(
         (base / f"step{n:02d}-response-from-web.md").write_text(responses[i], encoding="utf-8")
     if scores:
         (base / "00-scores.json").write_text(json.dumps(scores, ensure_ascii=False, indent=2), encoding="utf-8")
-    t10a = st.session_state.get("step10_article", "") or ""
+    # 最終本文はステップ6の確定稿（resp_5）を引き継ぐ。
+    confirmed_for_share = (st.session_state.get("resp_5", "") or "")
     t10u = st.session_state.get("step10_note_url", "") or ""
-    (base / "step10-share-inputs.md").write_text(
-        f"# ステップ10 入力（シェア前）\n\n## note 公開 URL\n{t10u}\n\n## 最終版記事全文\n\n{t10a}\n",
+    (base / "step09-share-inputs.md").write_text(
+        f"# ステップ9 入力（シェア前・確定稿はステップ6から自動引継ぎ）\n\n"
+        f"## note 公開 URL\n{t10u}\n\n"
+        f"## 最終版記事全文（= ステップ6 の確定稿）\n\n{confirmed_for_share}\n",
         encoding="utf-8",
     )
     (base / "99-evaluation.md").write_text(evaluation, encoding="utf-8")
     (base / "README.txt").write_text(
-        "手動ハンドオフのログ（10段）。\n"
-        f"- 評価3・5のスコア: 合格ライン {PASS_THRESHOLD}%。\n",
+        "手動ハンドオフのログ（9段）。\n"
+        f"- 評価3・5のスコア: 合格ライン {PASS_THRESHOLD}%。\n"
+        "- ステップ7: noteタグ、ステップ8: 画像（A/B/C 選択）、ステップ9: シェア。\n",
         encoding="utf-8",
     )
     return base
@@ -437,6 +472,11 @@ def _hc_init() -> None:
             st.session_state["prompt_2"] = _eval_template_from_repo(step_macro="STEP2")
         elif i == 4:
             st.session_state["prompt_4"] = _eval_template_from_repo(step_macro="STEP4")
+        elif i == 7:
+            st.session_state.setdefault("step8_image_style", "C")
+            st.session_state["prompt_7"] = _image_prompt_for_style(
+                st.session_state["step8_image_style"]
+            )
         else:
             st.session_state[f"prompt_{i}"] = DEFAULT_PROMPTS[i] if i < len(DEFAULT_PROMPTS) else ""
         st.session_state[f"resp_{i}"] = ""
@@ -526,8 +566,23 @@ def _clear_resp3() -> None:
     st.session_state["resp_3"] = ""
 
 
-def _pull_step7_to_step10() -> None:
-    st.session_state["step10_article"] = (st.session_state.get("resp_6") or "").strip()
+def _pull_confirmed_to_share() -> None:
+    """確定稿（新ステップ6 = resp_5）をシェア欄の記事全文に取り込む。"""
+    st.session_state["step10_article"] = (st.session_state.get("resp_5") or "").strip()
+
+
+def _save_confirmed_to_resp_5() -> None:
+    """ステップ6 の確定稿 widget (_w_resp_5) の値を永続キー resp_5 に同期。
+    Streamlit は widget が描画されないステップに移動すると widget key が消えるため、
+    永続キー側に保存しておかないと ステップ7/8/9 で「確定稿が空」と誤判定される。
+    """
+    st.session_state["resp_5"] = st.session_state.get("_w_resp_5", "")
+
+
+def _on_image_style_change() -> None:
+    """画像プロンプトのスタイル切替（A/B/C）。"""
+    style = st.session_state.get("step8_image_style", "C")
+    st.session_state["prompt_7"] = _image_prompt_for_style(style)
 
 
 def _hdr_input() -> None:
@@ -582,7 +637,7 @@ def main() -> None:
     st.session_state.setdefault("prompt_second_fail_claude", DEFAULT_PROMPT_SECOND_FAIL_CLAUDE)
     st.session_state.setdefault("step10_article", "")
     st.session_state.setdefault("step10_note_url", "")
-    _step6_gate_defaults()
+    st.session_state.setdefault("step8_image_style", "C")
 
     _flash = st.session_state.pop("_flash_ok", None)
     if _flash:
@@ -747,7 +802,7 @@ def main() -> None:
             if rs.strip():
                 gpt_body = _render_for_step(st.session_state.get("prompt_2", ""), responses_all, 2)
                 _copy_block(
-                    title="ChatGPT に貼る文（一次評価の依頼）",
+                    title="ChatGPT に貼る文(一次評価の依頼)",
                     body=gpt_body,
                     file_name="step03-for-chatgpt.md",
                     paste_to="**ChatGPT**（Web）を開いてください。",
@@ -866,12 +921,12 @@ def main() -> None:
                     if ov:
                         st.warning(
                             "オーバーライドにより合格として扱っています。"
-                            "ウィザードの ▶ で **ステップ6** に進み、編集・メモを残してください。"
+                            "ウィザードの ▶ で **ステップ6（確定稿）** に進み、本文を貼ってください。"
                         )
                     else:
                         st.success(
                             f"{sc} 点で合格ライン（{PASS_THRESHOLD} 点以上）です。"
-                            "ウィザードの ▶ で **ステップ6** に進み、あなたの編集・評価メモを記入してください。"
+                            "ウィザードの ▶ で **ステップ6（確定稿）** に進み、本文を貼ってください。"
                         )
                     with st.expander("ChatGPT 二次評価の依頼文を再コピー（任意）", expanded=False):
                         _copy_block(
@@ -888,7 +943,7 @@ def main() -> None:
                     claude_retry = _render_for_step(
                         st.session_state.get("prompt_second_fail_claude", DEFAULT_PROMPT_SECOND_FAIL_CLAUDE),
                         ra_r,
-                        5,
+                        4,
                     )
                     _copy_block(
                         title="Claude に貼る文（二次評価を反映して再改稿）",
@@ -919,7 +974,7 @@ def main() -> None:
                     if rs.strip() and sc == 0:
                         st.caption(
                             f"総合スコア（右の数値入力）を **1〜100** で入力すると表示が切り替わります。"
-                            f" **{PASS_THRESHOLD} 点以上**でステップ6の案内、未満で Claude 再改稿用がメイン表示になります。"
+                            f" **{PASS_THRESHOLD} 点以上**でステップ6（確定稿）の案内、未満で Claude 再改稿用がメイン表示になります。"
                         )
 
     elif i == 3:
@@ -976,62 +1031,148 @@ def main() -> None:
                 st.text_area("テンプレ", height=160, key=pk, label_visibility="collapsed")
 
     elif i == 5:
-        _step6_gate_defaults()
+        # ===== ステップ6：確定稿（本文を貼るだけ） =====
+        # widget key (_w_resp_5) は描画されない期間に消えるため、永続キー resp_5 を別管理。
+        # ステップ6を再訪したら永続キーから widget を復元。
+        if "_w_resp_5" not in st.session_state:
+            st.session_state["_w_resp_5"] = st.session_state.get("resp_5", "")
         L, R = _two_cols()
-        blockers = _step6_critical_blockers()
         with L:
             _hdr_input()
             _in_spec(_in_spec_list[5])
-            st.caption(
-                "★ の **3 軸すべて**が公開前の必確認です（未チェックで警告。**保存はブロックしません**）。"
-                " 1〜5 は各軸の自己評価（残リスクの把握用）。"
+            st.caption("手修正後の **確定稿の本文だけ** を貼ってください。ここから先（タグ・画像・シェア）はこの本文を参照します。")
+            st.text_area(
+                "確定稿（本文）",
+                height=300,
+                key="_w_resp_5",
+                on_change=_save_confirmed_to_resp_5,
+                placeholder="ここに公開前の最終本文を貼る",
             )
-            if blockers:
-                st.error(
-                    "**必須確認が未チェックです（見落とし防止）**: "
-                    + "、".join(blockers)
-                    + "。問題なければ左のチェックを入れてください。"
-                )
-            for key, lbl, mandatory in STEP6_GATE_ITEMS:
-                st.divider()
-                st.markdown("★ " + lbl)
-                st.checkbox("上記を確認した", key=f"gate6_chk_{key}")
-                st.select_slider(
-                    "自己評価（1〜5）",
-                    options=[1, 2, 3, 4, 5],
-                    format_func=lambda x, _m=STEP6_LV_LABELS: _m[x],
-                    key=f"gate6_lv_{key}",
-                )
-            st.text_area("追加メモ（自由記述・任意）", height=140, key="step6_extra")
+            # 貼った直後に永続キーへ同期（on_change が走らないペースト直後対策）。
+            _save_confirmed_to_resp_5()
+            with st.expander("このステップのテンプレを編集（任意・上級者）", expanded=False):
+                st.text_area("prompt_5 テンプレ", height=120, key=pk, label_visibility="collapsed")
         with R:
             _hdr_app_output()
             _out_spec(STEP_OUTPUT_SPEC[5])
+            cur_len = len((st.session_state.get("resp_5") or "").strip())
+            if cur_len > 0:
+                st.success(f"確定稿を取り込みました（{cur_len} 文字）。ウィザードの ▶ で次へ進めます。")
             st.info(
-                "**人による最終ゲート**です（ChatGPT の点数合格とは別レイヤ）。"
-                " **ログ保存**で左の内容が `step06-response-from-web.md` に表形式でまとまります。"
+                "確定稿は右に **コピー用テキストを出しません**。"
+                " 次の **ステップ7（noteタグ）** に進むと、ここに貼った本文が自動で組み込まれた Claude 用プロンプトが出ます。"
             )
-            st.markdown("**保存時プレビュー（合成メモ）**")
-            st.code(_step6_combined_response_text(), language="markdown")
-            with st.expander("定型以外のメモテンプレを編集（任意・上級者）", expanded=False):
-                st.text_area("prompt_5 テンプレ", height=120, key=pk, label_visibility="collapsed")
 
-    elif i == 9:
+    elif i == 6:
+        # ===== ステップ7：noteタグ作成 =====
         L, R = _two_cols()
+        pr = st.session_state.get(pk, "")
+        rendered = _render_for_step(pr, responses_all, i)
+        confirmed = (st.session_state.get("resp_5") or "").strip()
         with L:
             _hdr_input()
-            _in_spec(_in_spec_list[9])
-            st.caption("未入力なら **ステップ7 の確定稿**をコピーして貼っても構いません。")
-            st.button(
-                "ステップ7の確定稿をここに取り込む",
-                key="btn_step10_pull_step7",
-                on_click=_pull_step7_to_step10,
+            _in_spec(_in_spec_list[6])
+            if not confirmed:
+                st.warning("**ステップ6 の確定稿が空です。** 先に確定稿を貼ってください。")
+            st.text_area(
+                "Claude の返答（タグ表とコピペ用1行）",
+                height=240,
+                key=rk,
+                placeholder="Claude が返したタグ表全文を貼る（保存時のログに残ります）",
+            )
+            with st.expander("このステップのテンプレを編集（任意・上級者）", expanded=False):
+                st.caption("`{{STEP6}}` は確定稿の貼り戻しです。")
+                st.text_area("テンプレ", height=160, key=pk, label_visibility="collapsed")
+        with R:
+            _hdr_app_output()
+            _out_spec(STEP_OUTPUT_SPEC[6])
+            if confirmed:
+                _copy_block(
+                    title="Claude に貼る文（noteタグ生成・確定稿が埋まった状態）",
+                    body=rendered,
+                    file_name="step07-for-claude-tags.md",
+                    paste_to="**Claude**（Web）を開いてください。",
+                    next_step="右をコピーして Claude に貼り、返ってきたタグ表を左列に貼ってください。コピペ用1行が note の入力欄にそのまま使えます。",
+                )
+            else:
+                st.info("ステップ6 の確定稿が入ると、ここに Claude 用のタグ生成プロンプトが出ます。")
+
+    elif i == 7:
+        # ===== ステップ8：画像プロンプト（A/B/C 選択） =====
+        # 古い版のテンプレが session に残っている場合は最新版へ自動更新（既存セッション救済）。
+        # 「INNER must-keep area」は 2段セーフエリア導入時の固有キーワード。
+        cur_prompt_7 = st.session_state.get("prompt_7", "")
+        if "INNER must-keep area" not in cur_prompt_7:
+            st.session_state["prompt_7"] = _image_prompt_for_style(
+                st.session_state.get("step8_image_style", "C")
+            )
+        L, R = _two_cols()
+        confirmed = (st.session_state.get("resp_5") or "").strip()
+        pr = st.session_state.get(pk, "")
+        rendered = _render_for_step(pr, responses_all, i)
+        with L:
+            _hdr_input()
+            _in_spec(_in_spec_list[7])
+            if not confirmed:
+                st.warning("**ステップ6 の確定稿が空です。** 先に確定稿を貼ってください。")
+            st.radio(
+                "画像スタイルを選択",
+                options=list(IMAGE_STYLE_CHOICES.keys()),
+                format_func=lambda k: IMAGE_STYLE_CHOICES[k],
+                key="step8_image_style",
+                on_change=_on_image_style_change,
+                horizontal=False,
+                help="A 実写ドキュメンタリー／B イラスト・アニメ／C インフォ図解（既定）。切り替えると右の英語プロンプトが入れ替わります。",
             )
             st.text_area(
-                "最終版の記事全文",
-                height=260,
-                key="step10_article",
-                placeholder="公開前の最終本文を貼る",
+                "返答・メモ（任意：生成したURL や所感）",
+                height=160,
+                key=rk,
+                placeholder="生成した画像のURLや所感など",
             )
+            with st.expander("このステップのテンプレを編集（上級者）", expanded=False):
+                st.caption("`{{STEP6}}` は確定稿の貼り戻し。スタイルを切り替えるとここも上書きされます。")
+                st.text_area("テンプレ", height=200, key=pk, label_visibility="collapsed")
+        with R:
+            _hdr_app_output()
+            _out_spec(STEP_OUTPUT_SPEC[7])
+            st.warning(
+                "**このアプリは画像ファイルを生成しません。** 右に出るのは、画像生成サービスへ渡す **英語プロンプト（テキスト）** だけです。"
+                " **DALL·E 3 / GPT-4o image / Imagen 3 / Recraft V3 / Ideogram 2 / Flux 1.1 Pro** のプロンプト入力欄にコピーし、"
+                "各ツールで **生成（Generate）** を実行してください。PNG/JPEG が欲しい場合は必ず外部ツールが必要です。"
+            )
+            if rendered.strip() and confirmed:
+                style = st.session_state.get("step8_image_style", "C")
+                _copy_block(
+                    title=f"画像ツールに貼る文（選択: {IMAGE_STYLE_CHOICES[style]}）",
+                    body=rendered,
+                    file_name=f"step08-for-image-{style}.md",
+                    paste_to="画像生成サービスを開いてください（DALL·E 3 推奨）。",
+                    next_step="右をコピーして画像ツールに貼り、生成。所感や URL があれば左にメモ。",
+                )
+            elif not confirmed:
+                st.info("ステップ6 の確定稿が入ると、ここに英語プロンプトが出ます。")
+            else:
+                st.info("スタイルを選ぶと、ここに英語プロンプトが出ます。")
+
+    elif i == 8:
+        # ===== ステップ9：シェア文案（確定稿は自動引継ぎ・URL → Claude） =====
+        L, R = _two_cols()
+        confirmed = (st.session_state.get("resp_5") or "").strip()
+        with L:
+            _hdr_input()
+            _in_spec(_in_spec_list[8])
+            if confirmed:
+                st.success(
+                    f"ステップ6 の確定稿（{len(confirmed)} 文字）を自動で引き継ぎました。"
+                    "右の Claude プロンプトに埋め込まれます。"
+                )
+                with st.expander("引き継いだ確定稿の先頭をプレビュー", expanded=False):
+                    st.code(confirmed[:600] + ("…" if len(confirmed) > 600 else ""), language="markdown")
+            else:
+                st.error(
+                    "ステップ6 の確定稿が空です。先に **ステップ6** に戻り、確定稿の本文を貼ってください。"
+                )
             st.text_input(
                 "note の公開 URL",
                 key="step10_note_url",
@@ -1039,101 +1180,23 @@ def main() -> None:
             )
             st.markdown("##### 業務完了：シェア文案の保存")
             st.text_area(
-                "**Claude** の返答（X / LinkedIn 文案・ハッシュタグなど）全文",
+                "**Claude** の返答（X / LinkedIn 文案・ハッシュタグ）全文",
                 height=200,
                 key=rk,
                 placeholder="Claude の出力をそのまま貼るとログ保存時に残ります",
             )
         with R:
             _hdr_app_output()
-            _out_spec(STEP_OUTPUT_SPEC[9])
-            share_md = _build_step10_claude_share_markdown()
+            _out_spec(STEP_OUTPUT_SPEC[8])
+            share_md = _build_step9_claude_share_markdown()
             _copy_block(
-                title="Claude に貼る文（シェア文案・Markdown 1本）",
+                title="Claude に貼る文（シェア文案・Markdown 1本／注釈なし）",
                 body=share_md,
-                file_name="step10-claude-share.md",
+                file_name="step09-claude-share.md",
                 paste_to="**Claude**（Web）を開いてください。",
                 next_step="右をすべてコピーし、1 メッセージとして Claude に貼り、返答を左下に貼って **ログ保存**すれば完了です。",
-                dl_key="_dl_step10_claude_share_md",
+                dl_key="_dl_step09_claude_share_md",
             )
-
-    else:
-        pr = st.session_state.get(pk, "")
-        rendered = _render_for_step(pr, responses_all, i)
-        if i == 7:
-            who, cap = "画像ツール", "**画像生成AI**に順に貼り、**画像を生成**してください（英語ブロック＝生成指示）。"
-        elif i == 6:
-            who, cap = "", ""
-        elif i == 8:
-            who, cap = "", "公開した note の URL などを左列に貼ってください。"
-        else:
-            who, cap = "", ""
-
-        L, R = _two_cols()
-        with L:
-            _hdr_input()
-            _in_spec(_in_spec_list[i])
-            if i == 8:
-                st.caption(
-                    "**任意ステップ**です。URL を正本として残すなら **ステップ10** で十分な場合もあります。"
-                    " ここでは公開日時・短い所感・社内向け一行メモなどに使えます。"
-                )
-            st.text_area(
-                "返答・メモ",
-                height=220,
-                key=rk,
-                placeholder="Web の返答やメモをここに",
-            )
-            with st.expander("このステップのテンプレを編集", expanded=False):
-                st.text_area("テンプレ", height=160, key=pk, label_visibility="collapsed")
-        with R:
-            _hdr_app_output()
-            if i == 7:
-                st.warning(
-                    "**このアプリは画像ファイルを生成しません。** 右に出るのは、画像生成サービスへ渡す **英語プロンプト（テキスト）** だけです。"
-                    " **Midjourney / DALL·E / Adobe Firefly / Gemini / その他**のプロンプト入力欄にコピーし、"
-                    "各ツールで **生成（Generate）** を実行してください。PNG/JPEG が欲しい場合は必ず外部ツールが必要です。"
-                )
-            if rendered.strip():
-                _out_spec(STEP_OUTPUT_SPEC[i])
-                if who:
-                    _copy_block(
-                        title=f"{who} に貼る文",
-                        body=rendered,
-                        file_name=f"step{i+1:02d}-for-web.md",
-                        paste_to=cap,
-                        next_step=f"右をコピーして {who} に貼り、結果は左列に貼ってください。",
-                    )
-                elif i == 6:
-                    _copy_block(
-                        title="コピー用（任意）",
-                        body=rendered,
-                        file_name=f"step{i+1:02d}-for-web.md",
-                        paste_to="",
-                        next_step="必要ならコピーし、左列のメモと照らし合わせてください。",
-                    )
-                elif i == 8:
-                    _copy_block(
-                        title="コピー用テキスト（任意）",
-                        body=rendered,
-                        file_name=f"step{i+1:02d}-for-web.md",
-                        paste_to="",
-                        next_step="左列に note の URL などを貼ってください。",
-                    )
-                else:
-                    _copy_block(
-                        title="コピー用テキスト",
-                        body=rendered,
-                        file_name=f"step{i+1:02d}-for-web.md",
-                        paste_to="",
-                        next_step=cap or "右をコピーして使う Web サービスに貼ってください。",
-                    )
-            elif cap:
-                st.caption(cap)
-                st.info("このステップでは右にコピー用テキストは出ません。左列だけで進めます。")
-            else:
-                st.info("このステップでは右にコピー用テキストは出ません。左列だけで進めます。")
-
 
 
 if __name__ == "__main__":
